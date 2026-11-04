@@ -1,0 +1,33 @@
+# SYNAPSE BRAIN ATLAS v1
+# PIPE | name | size | comes from
+# AREA | name | fed by | symptoms if it stops working | what it does
+
+PIPE | heart               | big   | -
+PIPE | left-neck           | big   | heart
+PIPE | left-middle         | big   | left-neck
+PIPE | left-middle-top     | small | left-middle
+PIPE | left-middle-bottom  | small | left-middle
+PIPE | left-front          | small | left-neck
+PIPE | right-neck          | big   | heart
+PIPE | right-middle        | big   | right-neck
+PIPE | right-middle-top    | small | right-middle
+PIPE | right-middle-bottom | small | right-middle
+PIPE | right-front         | small | right-neck
+PIPE | back-left-neck      | small | heart
+PIPE | back-right-neck     | small | heart
+PIPE | back-main           | big   | back-left-neck, back-right-neck
+PIPE | left-back           | small | back-main
+PIPE | right-back          | small | back-main
+
+AREA | speaking       | left-middle-top | cannot-speak | Turns thoughts into words
+AREA | right-arm-face | left-middle-top | right-arm-weak, right-face-droop | Moves the right arm and face
+AREA | understanding  | left-middle-bottom | cannot-understand | Understands what other people say
+AREA | right-leg      | left-front | right-leg-weak | Moves the right leg
+AREA | right-vision   | left-back | blind-on-right | Sees everything on the right side
+AREA | left-arm-face  | right-middle-top | left-arm-weak, left-face-droop | Moves the left arm and face
+AREA | left-attention | right-middle-bottom | ignores-left-side | Notices things on the left side
+AREA | left-leg       | right-front | left-leg-weak | Moves the left leg
+AREA | left-vision    | right-back | blind-on-left | Sees everything on the left side
+AREA | memory         | left-back, right-back | forgets-new-things | Stores new memories
+AREA | awake          | back-main | drowsy | Keeps the patient awake and alert
+AREA | balance        | back-left-neck, back-right-neck | falls-over | Keeps balance and coordination
