@@ -1,4 +1,4 @@
-"""The brain atlas: pipes, brain areas, and reading them from a file."""
+"""The brain atlas: pipes, brain areas, bridges, and reading them from a file."""
 import re
 
 SIZES = ("big", "small")
@@ -16,6 +16,7 @@ class Pipe:
         self.parents = []
         self.children = []
         self.areas = []
+        self.bridges = []
 
     def __str__(self):
         return "\n".join([
@@ -56,11 +57,12 @@ class AtlasError(Exception):
 
 
 class Atlas:
-    def __init__(self, path, pipes, areas, heart):
+    def __init__(self, path, pipes, areas, heart, bridges):
         self.path = path
         self.pipes = pipes
         self.areas = areas
         self.heart = heart
+        self.bridges = bridges
 
     @staticmethod
     def load(path):
@@ -72,27 +74,31 @@ class Atlas:
     def find(self, word):
         return [area for area in self.areas.values() if area.matches(word)]
 
-    def tree_lines(self):
-        lines = []
+    def tree_lines(self, status=None):
+        rows = []
         drawn = set()
+
+        def add(item, text):
+            rows.append((text, status(item) if status else ""))
 
         def draw(pipe, indent):
             if pipe in drawn:
-                lines.append(indent + pipe.name + " (see above)")
+                add(pipe, indent + pipe.name + " (see above)")
                 return
             drawn.add(pipe)
-            lines.append(indent + pipe.name)
+            add(pipe, indent + pipe.name)
             for child in pipe.children:
                 draw(child, indent + "  ")
             for area in pipe.areas:
                 label = indent + "  [" + area.name + "]"
                 if area in drawn:
                     label += " (see above)"
-                lines.append(label)
+                add(area, label)
                 drawn.add(area)
 
         draw(self.heart, "")
-        return lines
+        width = max(len(text) for text, _ in rows) + 3
+        return [(text.ljust(width) + mark).rstrip() for text, mark in rows]
 
     def routes_to(self, area):
         known = {}
@@ -117,6 +123,8 @@ class AtlasReader:
         self.hearts = []
         self.first_line = {}
         self.broken = set()
+        self.bridge_lines = []
+        self.bridges = []
 
     def read(self):
         lines = self._read_file()
@@ -136,7 +144,7 @@ class AtlasReader:
             self.errors.sort(key=lambda error: error[0] or float("inf"))  # errors with no line go last
             raise AtlasError([message if line is None else f"{self.path}, line {line}: {message}"
                               for line, message in self.errors])
-        return Atlas(self.path, self.pipes, self.areas, heart)
+        return Atlas(self.path, self.pipes, self.areas, heart, self.bridges)
 
     def _read_file(self):
         try:
@@ -159,8 +167,10 @@ class AtlasReader:
     def _record(self, line, fields):
         kind = fields[0]
         name = fields[1] if len(fields) > 1 else ""
-        if kind not in FIELDS:
-            self._skip(line, name, f'unknown record type "{kind}". Expected PIPE or AREA.')
+        if kind == "BRIDGE":
+            self._bridge(line, fields)
+        elif kind not in FIELDS:
+            self._skip(line, name, f'unknown record type "{kind}". Expected PIPE, AREA or BRIDGE.')
         elif len(fields) != FIELDS[kind]:
             self._skip(line, name, f"{kind} needs {FIELDS[kind]} fields, found {len(fields)}.")
         elif not NAME.fullmatch(name):
@@ -192,6 +202,18 @@ class AtlasReader:
             self._error(line, f'{owner} is missing "what it does".')
         self.areas[name] = Area(name, pipe_names, symptom_list, description, line)
 
+    def _bridge(self, line, fields):
+        if len(fields) != 3:
+            self._error(line, f"BRIDGE needs 3 fields, found {len(fields)}.")
+            return
+        for name in fields[1:]:
+            if not NAME.fullmatch(name):
+                self._error(line, f'bridge has invalid name "{name}". {NAME_RULE}')
+        if fields[1] == fields[2]:
+            self._error(line, f'bridge connects "{fields[1]}" to itself.')
+        else:
+            self.bridge_lines.append((line, fields[1], fields[2]))
+
     def _list(self, line, text, owner, field, are_names=True):
         if not text:
             hint = ' Use "-" only for the heart.' if field == "comes from" else ""
@@ -218,6 +240,17 @@ class AtlasReader:
             for pipe in self._find_pipes(area.line, f'area "{area.name}" is fed by', area.pipe_names):
                 area.pipes.append(pipe)
                 pipe.areas.append(area)
+        for line, name_a, name_b in self.bridge_lines:
+            ends = self._find_pipes(line, "bridge connects", [name_a, name_b])
+            if len(ends) < 2:
+                continue
+            pipe_a, pipe_b = ends
+            if pipe_b in pipe_a.bridges:
+                self._error(line, f'the bridge between "{pipe_a.name}" and "{pipe_b.name}" is listed twice.')
+            else:
+                pipe_a.bridges.append(pipe_b)
+                pipe_b.bridges.append(pipe_a)
+                self.bridges.append((pipe_a, pipe_b))
 
     def _find_pipes(self, line, subject, names):
         found = []
@@ -270,7 +303,7 @@ class AtlasReader:
             pipe = todo.pop()
             if pipe not in reached:
                 reached.add(pipe)
-                todo.extend(pipe.children)
+                todo.extend(pipe.children + pipe.bridges)
         for pipe in self.pipes.values():
             if pipe not in reached:
                 self._error(pipe.line, f'Pipe "{pipe.name}" can never receive blood from the heart.')
