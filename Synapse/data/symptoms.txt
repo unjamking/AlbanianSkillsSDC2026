@@ -1,0 +1,16 @@
+# SYMPTOM | code | points | what the ambulance crew sees
+
+SYMPTOM | cannot-speak       | 2 | Cannot get words out, or the words are wrong
+SYMPTOM | cannot-understand  | 2 | Does not understand simple questions
+SYMPTOM | right-arm-weak     | 3 | Cannot hold the right arm up for 10 seconds
+SYMPTOM | left-arm-weak      | 3 | Cannot hold the left arm up for 10 seconds
+SYMPTOM | right-face-droop   | 1 | The right side of the face hangs when smiling
+SYMPTOM | left-face-droop    | 1 | The left side of the face hangs when smiling
+SYMPTOM | right-leg-weak     | 3 | Cannot hold the right leg up for 5 seconds
+SYMPTOM | left-leg-weak      | 3 | Cannot hold the left leg up for 5 seconds
+SYMPTOM | blind-on-right     | 2 | Does not see things on the right side
+SYMPTOM | blind-on-left      | 2 | Does not see things on the left side
+SYMPTOM | ignores-left-side  | 2 | Ignores people and things on the left side
+SYMPTOM | forgets-new-things | 1 | Cannot repeat 3 words after one minute
+SYMPTOM | drowsy             | 3 | Hard to keep awake
+SYMPTOM | falls-over         | 2 | Cannot stand or walk straight

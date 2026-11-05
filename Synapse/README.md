@@ -3,10 +3,10 @@
 Python 3.7+, standard library only, no installs needed. One program for every mission:
 
 ```
-python3 Synapse/synapse.py
+python3 Synapse/main.py
 ```
 
-It works from any folder. It loads `data/atlas.txt` on start, then reads commands at the `synapse>` prompt. Type `help` to see them all.
+It works from any folder. It loads `data/atlas.txt`, `data/symptoms.txt` and the saved cases in `data/cases.json` on start, then reads commands at the `synapse>` prompt. Type `help` to see them all.
 
 ## Mission 1: The Brain Map
 
@@ -33,10 +33,25 @@ Bonus 3: loading reports every error in a file at once, including loops and pipe
 
 Bonus 2: `atlas load data/atlas-bridges.txt` loads an atlas with `BRIDGE | pipe | pipe` records. Blood crosses a bridge in both directions, and `lesion block` says which pipes a bridge saved.
 
+## Mission 3: Triage
+
+| Command | What it does |
+|---|---|
+| `triage symptoms` | Every symptom code with its points and what the crew sees |
+| `triage load <path>` | Load another symptom list, all or nothing |
+| `triage new` | Create a case: asks for the patient's details one by one, then shows the severity, the likely blocked pipe and the time limits |
+| `triage list` | Every case with its id, name, age, city, severity and likely pipe |
+| `triage show <id>` | One case in full |
+| `triage update <id>` | Bonus 2: add new symptoms and compute everything again; the case keeps a history |
+| `triage urgent` | Bonus 3: the cases that can still be treated, shortest time left first |
+
+Bonus 1: when no pipe matches the symptoms exactly, `triage new` shows the 3 closest pipes, and the best one counts if it matches 60% or more.
+
 ## Files
 
-- `synapse.py`: the interactive shell, the program you start
+- `main.py`: the program you start; the `synapse.py` shell with the triage commands added
+- `synapse.py`: the shell for the atlas and lesion commands
 - `atlas.py`: the model (`Pipe`, `Area`, `Atlas`) and `AtlasReader`, which reads and checks a file
 - `lesion.py`: the lesion engine (`Lesion`, `risky_pipes`); the four blood rules are written here and nowhere else
-- `data/`: the atlases (`atlas.txt`, `atlas-bridges.txt`)
-- `Synapse-2026-Mission-*.pdf`: the official mission statements
+- `triage.py`: the symptom list, the cases and their time limits, and `CaseBook`, which saves them
+- `data/`: the atlases (`atlas.txt`, `atlas-bridges.txt`), `symptoms.txt`, and `cases.json` once a case is saved
