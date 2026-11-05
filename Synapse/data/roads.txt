@@ -1,0 +1,20 @@
+# ROAD | city | city | minutes
+
+ROAD | Shkoder     | Lezhe       | 40
+ROAD | Lezhe       | Tirana      | 60
+ROAD | Lezhe       | Durres      | 60
+ROAD | Kukes       | Lezhe       | 100
+ROAD | Kukes       | Shkoder     | 165
+ROAD | Kukes       | Peshkopi    | 110
+ROAD | Peshkopi    | Tirana      | 150
+ROAD | Tirana      | Durres      | 40
+ROAD | Tirana      | Elbasan     | 50
+ROAD | Durres      | Fier        | 70
+ROAD | Elbasan     | Fier        | 90
+ROAD | Elbasan     | Korce       | 120
+ROAD | Fier        | Berat       | 50
+ROAD | Fier        | Vlore       | 40
+ROAD | Vlore       | Sarande     | 150
+ROAD | Fier        | Gjirokaster | 120
+ROAD | Gjirokaster | Sarande     | 60
+ROAD | Korce       | Gjirokaster | 200

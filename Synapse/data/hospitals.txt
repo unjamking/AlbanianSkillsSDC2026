@@ -1,0 +1,14 @@
+# HOSPITAL | name | city | can do (CT, DRUG, CLOT)
+
+HOSPITAL | Qendra Neuro Tirana | Tirana      | CT, DRUG, CLOT
+HOSPITAL | Spitali Rozafa      | Shkoder     | CT, DRUG
+HOSPITAL | Spitali Adriatik    | Durres      | CT, DRUG
+HOSPITAL | Spitali Shkumbin    | Elbasan     | CT, DRUG
+HOSPITAL | Spitali Apolonia    | Fier        | CT, DRUG
+HOSPITAL | Spitali Kanina      | Vlore       | CT, DRUG
+HOSPITAL | Spitali Morava      | Korce       | CT, DRUG
+HOSPITAL | Spitali Drino       | Gjirokaster | CT, DRUG
+HOSPITAL | Spitali Osumi       | Berat       | CT
+HOSPITAL | Spitali Lisus       | Lezhe       | CT
+HOSPITAL | Spitali Korabi      | Peshkopi    | CT
+HOSPITAL | Spitali Butrint     | Sarande     | CT
