@@ -1,0 +1,7 @@
+# ARRIVAL | time | patient | type | severity | last seen well | big pipe
+
+ARRIVAL | 09:20 | P-0037 | stroke | 5  | 06:10 | no
+ARRIVAL | 09:40 | P-0039 | stroke | 6  | 08:10 | no
+ARRIVAL | 09:55 | P-0040 | stroke | 3  | 09:05 | no
+ARRIVAL | 10:05 | P-0043 | stroke | 12 | 09:30 | yes
+ARRIVAL | 10:25 | P-0044 | stroke | 9  | 06:30 | no
