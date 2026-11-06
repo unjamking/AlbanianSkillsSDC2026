@@ -1,6 +1,8 @@
 """The brain atlas: pipes, brain areas, bridges, and reading them from a file."""
 import re
 
+from datafile import DataError, read_records
+
 SIZES = ("big", "small")
 FIELDS = {"PIPE": 4, "AREA": 5}
 NAME = re.compile(r"[a-z0-9-]*[a-z0-9][a-z0-9-]*")
@@ -48,12 +50,6 @@ class Area:
     def matches(self, word):
         texts = [self.name, self.description] + self.symptoms
         return any(word.lower() in text.lower() for text in texts)
-
-
-class AtlasError(Exception):
-    def __init__(self, errors):
-        super().__init__("\n".join(errors))
-        self.errors = errors
 
 
 class Atlas:
@@ -127,13 +123,10 @@ class AtlasReader:
         self.bridges = []
 
     def read(self):
-        lines = self._read_file()
-        records = [(number, text) for number, text in enumerate(lines, start=1)
-                   if text and not text.startswith("#")]
+        records = read_records(self.path)
         if not records:
-            raise AtlasError(["The file is empty."])
-        for number, text in records:
-            fields = [field.strip() for field in text.split("|")]
+            raise DataError(["The file is empty."])
+        for number, fields in records:
             self._record(number, fields)
         self._link()
         heart = self._check_heart()
@@ -142,20 +135,9 @@ class AtlasReader:
             self._check_reachable(heart)
         if self.errors:
             self.errors.sort(key=lambda error: error[0] or float("inf"))  # errors with no line go last
-            raise AtlasError([message if line is None else f"{self.path}, line {line}: {message}"
-                              for line, message in self.errors])
+            raise DataError([message if line is None else f"{self.path}, line {line}: {message}"
+                             for line, message in self.errors])
         return Atlas(self.path, self.pipes, self.areas, heart, self.bridges)
-
-    def _read_file(self):
-        try:
-            with open(self.path, encoding="utf-8-sig") as file:
-                return [line.strip() for line in file]
-        except FileNotFoundError:
-            raise AtlasError([f"File not found: {self.path}"])
-        except UnicodeDecodeError:
-            raise AtlasError([f"Cannot read {self.path}: it is not a UTF-8 text file."])
-        except OSError as error:
-            raise AtlasError([f"Cannot read {self.path}: {error.strerror}"])
 
     def _error(self, line, message):
         self.errors.append((line, message))

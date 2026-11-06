@@ -1,7 +1,7 @@
 """The stroke unit: the patients of one morning, the scanner and the clot removal room, and the hospital times."""
-from atlas import AtlasError
-from route import clock_or_none
-from triage import CLOT_MIN_SEVERITY, CLOT_WINDOW, DRUG_WINDOW, MINUTES_PER_DAY, clock, parse_time
+from datafile import DataError, read_records
+from triage import (CLOT_MIN_SEVERITY, CLOT_WINDOW, DRUG_WINDOW, MINUTES_PER_DAY, clock, clock_or_none, parse_clock,
+                    parse_time)
 
 UNIT = "Qendra Neuro Tirana"
 SCAN_TIME = 15
@@ -13,7 +13,6 @@ HEAD_SCAN_LIMIT = 60
 DEADLINE_AFTER_ARRIVAL = 60
 MAX_SCANNERS = 10
 ORDERS = {"arrival": "first come, first served", "deadline": "deadline first"}
-DAYS = {"": 0, "yesterday": -1, "tomorrow": 1}
 EVENT_ORDER = ("arrives", "scan", "drug", "clot")
 
 
@@ -41,12 +40,6 @@ def read_time(text):
         return None
 
 
-def parse_clock(text):
-    """Reads a time written by clock(), such as "01:20 tomorrow"."""
-    time, _, day = text.partition(" ")
-    return parse_time(time) + DAYS[day] * MINUTES_PER_DAY
-
-
 def stroke_patient(patient_id, arrives, severity, seen, big_pipe):
     if seen > arrives:
         seen -= MINUTES_PER_DAY  # seen well later in the day than the arrival: that was yesterday
@@ -56,22 +49,11 @@ def stroke_patient(patient_id, arrives, severity, seen, big_pipe):
 
 
 def load_events(path):
-    try:
-        with open(path, encoding="utf-8-sig") as file:
-            lines = [line.strip() for line in file]
-    except FileNotFoundError:
-        raise AtlasError([f"File not found: {path}"])
-    except UnicodeDecodeError:
-        raise AtlasError([f"Cannot read {path}: it is not a UTF-8 text file."])
-    except OSError as error:
-        raise AtlasError([f"Cannot read {path}: {error.strerror}"])
+    """Reads today's patients. An empty file is a morning with no patients from outside."""
     patients = []
     first_line = {}
     errors = []
-    for number, text in enumerate(lines, start=1):
-        if not text or text.startswith("#"):
-            continue
-        fields = [field.strip() for field in text.split("|")]
+    for number, fields in read_records(path):
         kind = fields[3].lower() if len(fields) == 7 else ""
         if fields[0] != "ARRIVAL":
             problem = f'unknown record type "{fields[0]}". Expected ARRIVAL.'
@@ -105,7 +87,7 @@ def load_events(path):
         if problem:
             errors.append(f"{path}, line {number}: {problem}")
     if errors:
-        raise AtlasError(errors)
+        raise DataError(errors)
     return patients
 
 
@@ -115,7 +97,7 @@ def patients_from_cases(book):
     elsewhere = []
     skipped = []
     for case in book.cases:
-        route = book.routes.get(case.id)
+        route = case.route
         if route is None:
             skipped.append(f"Case {case.id} has no route yet. Run route {case.id} first. Skipped.")
             continue
@@ -280,12 +262,10 @@ class Morning:
 
 def save_stays(book, morning):
     """Saves the hospital times inside the route that brought each case here. Running again replaces them."""
-    stays = [stay for stay in morning.stays.values() if stay.patient.case]
-    old_routes = {stay.patient.case.id: dict(book.routes[stay.patient.case.id]) for stay in stays}
-    for stay in stays:
-        book.routes[stay.patient.case.id]["hospitalStay"] = stay.to_dict()
-    try:
-        book.save()
-    except OSError:
-        book.routes.update(old_routes)
-        raise
+    routes = {}
+    for stay in morning.stays.values():
+        if stay.patient.case:
+            route = dict(stay.patient.case.route)
+            route["hospitalStay"] = stay.to_dict()
+            routes[stay.patient.case] = route
+    book.set_routes(routes)

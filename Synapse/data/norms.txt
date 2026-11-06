@@ -1,0 +1,17 @@
+# NORM | test | from age | to age | normal average | spread
+
+NORM | reaction  | 0  | 29  | 300 | 40
+NORM | reaction  | 30 | 49  | 320 | 45
+NORM | reaction  | 50 | 64  | 350 | 50
+NORM | reaction  | 65 | 79  | 390 | 60
+NORM | reaction  | 80 | 120 | 430 | 70
+NORM | memory    | 0  | 29  | 7.0 | 1.2
+NORM | memory    | 30 | 49  | 6.8 | 1.2
+NORM | memory    | 50 | 64  | 6.5 | 1.2
+NORM | memory    | 65 | 79  | 6.0 | 1.1
+NORM | memory    | 80 | 120 | 5.5 | 1.1
+NORM | colorword | 0  | 29  | 14  | 3
+NORM | colorword | 30 | 49  | 15  | 3
+NORM | colorword | 50 | 64  | 16  | 3.5
+NORM | colorword | 65 | 79  | 18  | 4
+NORM | colorword | 80 | 120 | 21  | 5

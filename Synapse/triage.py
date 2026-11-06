@@ -3,7 +3,9 @@ import json
 import os
 import re
 
-from atlas import NAME, NAME_RULE, AtlasError
+from atlas import NAME, NAME_RULE
+from clinic import visit_from_dict
+from datafile import DataError, read_records
 from lesion import Lesion
 
 MINUTES_PER_DAY = 24 * 60
@@ -12,6 +14,7 @@ CLOT_WINDOW = 24 * 60
 CLOT_MIN_SEVERITY = 5
 CLOSEST_MATCH_NEEDED = 0.6
 TIME = re.compile(r"([0-9]{1,2}):([0-9]{2})")
+DAYS = {"": 0, "yesterday": -1, "tomorrow": 1}
 
 
 class Symptom:
@@ -28,22 +31,13 @@ class SymptomList:
 
     @staticmethod
     def load(path):
-        try:
-            with open(path, encoding="utf-8-sig") as file:
-                lines = [line.strip() for line in file]
-        except FileNotFoundError:
-            raise AtlasError([f"File not found: {path}"])
-        except UnicodeDecodeError:
-            raise AtlasError([f"Cannot read {path}: it is not a UTF-8 text file."])
-        except OSError as error:
-            raise AtlasError([f"Cannot read {path}: {error.strerror}"])
+        records = read_records(path)
+        if not records:
+            raise DataError(["The file is empty."])
         symptoms = {}
         first_line = {}
         errors = []
-        for number, text in enumerate(lines, start=1):
-            if not text or text.startswith("#"):
-                continue
-            fields = [field.strip() for field in text.split("|")]
+        for number, fields in records:
             if fields[0] != "SYMPTOM":
                 problem = f'unknown record type "{fields[0]}". Expected SYMPTOM.'
             elif len(fields) != 4:
@@ -62,10 +56,8 @@ class SymptomList:
                 first_line[fields[1]] = number
             if problem:
                 errors.append(f"{path}, line {number}: {problem}")
-        if not symptoms and not errors:
-            errors.append("The file is empty.")
         if errors:
-            raise AtlasError(errors)
+            raise DataError(errors)
         return SymptomList(path, symptoms)
 
     def parse(self, text):
@@ -106,6 +98,18 @@ def clock(minutes):
     if day > 0:
         return text + " tomorrow"
     return text
+
+
+def clock_or_none(minutes):
+    if minutes is None:
+        return None
+    return clock(minutes)
+
+
+def parse_clock(text):
+    """Reads a time written by clock(), such as "01:20 tomorrow"."""
+    time, _, day = text.partition(" ")
+    return parse_time(time) + DAYS[day] * MINUTES_PER_DAY
 
 
 def duration(minutes):
@@ -181,6 +185,8 @@ class Case:
         self.big_pipe = False
         self.match = None
         self.closest = []
+        self.route = None  # Mission 4: the chosen route, with the hospital times of Mission 5 inside
+        self.visits = []  # Mission 6: the clinic visits
 
     def assess(self, atlas, symptom_list):
         self.severity = symptom_list.severity(self.symptoms)
@@ -258,6 +264,8 @@ class Case:
             "clotUntil": clock(self.clot_until),
             "clotPossible": self.clot_possible(self.time_now),
             "history": self.history,
+            "route": self.route,
+            "visits": self.visits,
         }
 
     @staticmethod
@@ -276,6 +284,8 @@ class Case:
         case.match = data["match"]
         case.closest = [[str(name), int(match)] for name, match in data["closestPipes"]]
         case.history = list(data["history"])
+        case.route = data.get("route")  # cases saved before Mission 4 have no route
+        case.visits = [visit_from_dict(visit) for visit in data.get("visits", [])]
         return case
 
 
@@ -318,6 +328,26 @@ class CaseBook:
             self.save()
         except OSError:
             self.cases[index] = old
+            raise
+
+    def add_visit(self, case, visit):
+        case.visits.append(visit)
+        try:
+            self.save()
+        except OSError:
+            case.visits.pop()
+            raise
+
+    def set_routes(self, routes):
+        """Saves new routes (case -> route) in their cases. If saving fails, every case keeps its old route."""
+        old_routes = {case: case.route for case in routes}
+        for case, route in routes.items():
+            case.route = route
+        try:
+            self.save()
+        except OSError:
+            for case, route in old_routes.items():
+                case.route = route
             raise
 
     def save(self):

@@ -1,10 +1,8 @@
 """Route: the roads, the hospitals, the fastest drive to each hospital, and where the ambulance takes a case."""
 import heapq
-import json
-import os
 
-from atlas import AtlasError
-from triage import CaseBook, clock
+from datafile import DataError, read_records
+from triage import clock, clock_or_none
 
 ABILITIES = ("CT", "DRUG", "CLOT")
 OWN_CITY_DRIVE = 10
@@ -48,7 +46,7 @@ class Roads:
             if problem:
                 errors.append(f"{path}, line {number}: {problem}")
         if errors:
-            raise AtlasError(errors)
+            raise DataError(errors)
         return Roads(path, roads, len(seen))
 
 
@@ -67,7 +65,7 @@ class Hospitals:
     @staticmethod
     def read(path, records, roads):
         if roads is None:
-            raise AtlasError([f"Cannot check {path}: load the roads first, every hospital must be on a road."])
+            raise DataError([f"Cannot check {path}: load the roads first, every hospital must be on a road."])
         hospitals = []
         first_line = {}
         errors = []
@@ -99,34 +97,22 @@ class Hospitals:
             if problem:
                 errors.append(f"{path}, line {number}: {problem}")
         if errors:
-            raise AtlasError(errors)
+            raise DataError(errors)
         return Hospitals(path, hospitals)
 
 
 def load_map_file(path, roads):
     """Reads a roads or a hospitals file. The first ROAD or HOSPITAL record says which of the two it is."""
-    try:
-        with open(path, encoding="utf-8-sig") as file:
-            lines = [line.strip() for line in file]
-    except FileNotFoundError:
-        raise AtlasError([f"File not found: {path}"])
-    except UnicodeDecodeError:
-        raise AtlasError([f"Cannot read {path}: it is not a UTF-8 text file."])
-    except OSError as error:
-        raise AtlasError([f"Cannot read {path}: {error.strerror}"])
-    records = []
-    for number, text in enumerate(lines, start=1):
-        if text and not text.startswith("#"):
-            records.append((number, [field.strip() for field in text.split("|")]))
+    records = read_records(path)
     if not records:
-        raise AtlasError(["The file is empty."])
+        raise DataError(["The file is empty."])
     for number, fields in records:
         if fields[0] == "ROAD":
             return Roads.read(path, records)
         if fields[0] == "HOSPITAL":
             return Hospitals.read(path, records, roads)
     number, fields = records[0]
-    raise AtlasError([f'{path}, line {number}: unknown record type "{fields[0]}". Expected ROAD or HOSPITAL.'])
+    raise DataError([f'{path}, line {number}: unknown record type "{fields[0]}". Expected ROAD or HOSPITAL.'])
 
 
 def cities(roads, hospitals):
@@ -202,12 +188,6 @@ def with_ability(hospitals, city, ability):
             hospital = Hospital(hospital.name, hospital.city, hospital.abilities + [ability])
         changed.append(hospital)
     return Hospitals(hospitals.path, changed)
-
-
-def clock_or_none(minutes):
-    if minutes is None:
-        return None
-    return clock(minutes)
 
 
 class Visit:
@@ -301,36 +281,3 @@ class Route:
         route["transfer"] = self.visits[1].to_dict() if len(self.visits) == 2 else None
         return route
 
-
-class RouteBook(CaseBook):
-    """The cases file of Mission 3, with the chosen route kept inside each case."""
-
-    def __init__(self, path):
-        super().__init__(path)
-        self.routes = {}  # case id -> saved route
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as file:
-                for item in json.load(file)["cases"]:
-                    if "route" in item:
-                        self.routes[str(item["id"])] = item["route"]
-
-    def set_route(self, case, route):
-        old_routes = dict(self.routes)
-        self.routes[case.id] = route
-        try:
-            self.save()
-        except OSError:
-            self.routes = old_routes
-            raise
-
-    def save(self):
-        data = {"nextNumber": self.next_number, "cases": []}
-        for case in self.cases:
-            item = case.to_dict()
-            if case.id in self.routes:
-                item["route"] = self.routes[case.id]
-            data["cases"].append(item)
-        temp_path = self.path + ".tmp"
-        with open(temp_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=2, ensure_ascii=False)
-        os.replace(temp_path, self.path)
