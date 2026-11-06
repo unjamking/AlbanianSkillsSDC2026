@@ -213,3 +213,24 @@ def expected_weak(test, stopped):
 def bar_length(test, value):
     """Bonus 3: the number of # for a result, rounded to the nearest whole # (half goes up)."""
     return int(Decimal(str(value)) / SCALES[test] + Decimal("0.5"))
+
+
+def test_checks(visits, norms, stopped):
+    """Bonus 2 for the latest visit: (test, result, rating, trend, expected weak) for every test."""
+    latest = visits[-1]
+    previous = visits[-2] if len(visits) > 1 else None
+    checks = []
+    for test in TESTS:
+        value = latest[KEYS[test]]
+        moved = "-" if previous is None else trend(test, previous[KEYS[test]], value)
+        if stopped is None:
+            expected = "unknown"
+        else:
+            expected = "yes" if expected_weak(test, stopped) else "no"
+        checks.append((test, value, rating(test, value, norms[test]), moved, expected))
+    return checks
+
+
+def unexplained(rated, expected):
+    """A weak result that the damage does not explain."""
+    return rated != "normal" and expected != "yes"

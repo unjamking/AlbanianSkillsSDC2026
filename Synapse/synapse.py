@@ -1,14 +1,16 @@
 """Synapse stroke command center: every command of every mission. Start with: python synapse.py"""
+import json
 import os
 import random
 import sys
 import time
 
 from atlas import Atlas
+from casefile import first_treatment, has_route, hospital_stay, hospital_times, last_leg, millions
 from clinic import (COLOUR_PENALTY, COLOURS, KEYS, LOWER_IS_BETTER, MEMORY_LONGEST, MEMORY_START, REACTION_ROUNDS,
                     TESTS, TOO_SOON_MS, WAIT_FROM, WAIT_TO, Norms, bar_length, by_day, colour_rounds, damage,
-                    digit_row, expected_weak, make_visit, parse_memory, parse_new_day, parse_reaction, parse_seconds,
-                    rating, trend)
+                    digit_row, make_visit, parse_memory, parse_new_day, parse_reaction, parse_seconds, rating,
+                    test_checks, trend, unexplained)
 from datafile import DataError
 from lesion import Lesion, risky_pipes
 from route import (ABILITIES, DRUG_TIME, FAR, Roads, Route, cities, clot_minutes, fastest, find_city, load_map_file,
@@ -50,6 +52,11 @@ HELP = """Commands:
   clinic check <id>              compare the latest results with the stroke damage and flag what it does not explain
   clinic chart <id> <test>       one bar per visit for reaction, memory or colorword
   clinic load <path>             load other normal values (nothing changes if it has errors)
+  case <case id>                 the whole story of a case: triage, route, hospital and recovery
+  case find <text>               find a case by name or city and show it
+  case export <case id>          write the case to exports/<case id>.txt and exports/<case id>.json
+  case board                     every case on one screen, one row each
+  case cost <case id>            the brain cells lost before the first treatment, and while waiting
   help                           show this list
   exit                           quit Synapse"""
 
@@ -76,10 +83,14 @@ def count(number, word):
     return f"{number} {word}s"
 
 
-def print_table(rows):
+def table_lines(rows):
     widths = [max(len(row[i]) for row in rows) + 3 for i in range(len(rows[0]))]
-    for row in rows:
-        print("".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+    return ["".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows]
+
+
+def print_table(rows):
+    for line in table_lines(rows):
+        print(line)
 
 
 def print_field(indent, label, value):
@@ -357,6 +368,12 @@ def normal_text(norms):
     return f"normal for ages {from_age}-{to_age}: " + ", ".join(parts)
 
 
+def saved_path_text(path):
+    if len(path) == 1:
+        return "inside " + str(path[0])
+    return " -> ".join(str(city) for city in path)
+
+
 class Synapse:
     def __init__(self):
         self.atlas = None
@@ -410,6 +427,12 @@ class Synapse:
                 "chart": (self.clinic_chart, "<id and test>", ("cases", "norms")),
                 "load": (self.clinic_load, "<path>", ()),
             },
+            "case": {
+                "find": (self.case_find, "<text>", ("cases",)),
+                "export": (self.case_export, "<case id>", ("cases",)),
+                "board": (self.case_board, "", ("cases",)),
+                "cost": (self.case_cost, "<case id>", ("cases",)),
+            },
         }
 
     def run_command(self, line):
@@ -422,7 +445,13 @@ class Synapse:
         if command == "help":
             print(HELP)
         elif command == "route" and len(words) == 2 and words[1].lower() not in self.commands["route"]:
-            self.route_case(words[1])  # route <case id>: the only command with no fixed word after it
+            self.route_case(words[1])  # route <case id> and case <case id> have no fixed word after them
+        elif command == "case" and len(words) == 1:
+            print("ERROR: Missing case id. Usage: case <case id>")
+        elif command == "case" and len(words) == 2 and words[1].lower() == "find":
+            print("ERROR: Search text cannot be empty.")
+        elif command == "case" and len(words) == 2 and words[1].lower() not in self.commands["case"]:
+            self.case_show(words[1])
         elif command in self.commands:
             subcommand = words[1].lower() if len(words) > 1 else ""
             argument = words[2].strip() if len(words) > 2 else ""
@@ -602,6 +631,7 @@ class Synapse:
             self.cases = CaseBook(path)
         except (OSError, ValueError, KeyError, TypeError) as error:
             reason = f"the field {error} is missing" if isinstance(error, KeyError) else str(error)
+            print(f"ERROR: The database file {path} is damaged. No cases loaded.")
             print(f"ERROR: Could not read the cases in {path}: {reason}.")
             print("Fix or move the file, then start Synapse again. No case is saved until then.")
         else:
@@ -1111,16 +1141,9 @@ class Synapse:
             print(f"Damage: unknown, case {case.id} has no likely blocked pipe")
         rows = [("TEST", f"DAY {latest['day']}", "", "TREND", "EXPECTED WEAK")]
         flags = []
-        for test in TESTS:
-            value = latest[KEYS[test]]
-            rated = rating(test, value, norms[test])
-            moved = "-" if previous is None else trend(test, previous[KEYS[test]], value)
-            if stopped is None:
-                expected = "unknown"
-            else:
-                expected = "yes" if expected_weak(test, stopped) else "no"
+        for test, value, rated, moved, expected in test_checks(visits, norms, stopped):
             rows.append((TEST_NAMES[test], result_text(test, value), rated, moved, expected))
-            if rated != "normal" and expected != "yes":
+            if unexplained(rated, expected):
                 reason = "the damage does not explain it" if stopped is not None else "no known damage explains it"
                 flags.append(f"{TEST_NAMES[test]} is {rated} normal, and {reason}.")
             if moved == "worse":
@@ -1154,6 +1177,213 @@ class Synapse:
               f"normal for age {case.age}: {low} to {high} {UNITS[test]}")
         print_table([(f"Day {visit['day']}", "#" * bar_length(test, visit[KEYS[test]]),
                       result_text(test, visit[KEYS[test]])) for visit in visits])
+
+    # Mission 7: the case file
+
+    def case_lines(self, case):
+        """The whole story of a case, as lines of text. case <case id> prints them, case export writes them."""
+        lines = [f"=== Case {case.id}: {case.name}, {case.age}, {case.city} ===", "", "TRIAGE"]
+        pipe = "unknown"
+        if case.likely_pipe:
+            pipe = f"{case.likely_pipe} ({'big' if case.big_pipe else 'small'})"
+        drug = f"Drug possible until {clock(case.drug_until)}"
+        if not case.drug_possible(case.time_now):
+            drug = f"Drug limit passed at {clock(case.drug_until)}"
+        clot = "clot removal not possible"
+        if case.clot_possible(case.time_now):
+            clot = f"clot removal possible until {clock(case.clot_until)}"
+        lines += table_lines([(clock(case.seen_well), "Last seen well"),
+                              (clock(case.created_at), "Case created by the ambulance crew"),
+                              ("", "Symptoms: " + ", ".join(case.symptoms)),
+                              ("", f"Severity {case.severity} ({case.band}) · likely blocked pipe: {pipe}"),
+                              ("", f"{drug} · {clot}")])
+        lines += [""] + self.route_lines(case) + [""] + self.hospital_lines(case) + [""] + self.recovery_lines(case)
+        return lines
+
+    def route_lines(self, case):
+        if not has_route(case):
+            return [f"ROUTE: not planned yet. Run route {case.id}."]
+        route = case.route
+        path = route.get("path") or ["?"]
+        leaves = f"Leaves {path[0]}: {saved_path_text(path)}, {route.get('driveMinutes')} min"
+        events = [(str(route.get("leaves")), leaves),
+                  (str(route.get("arrives")), f"Arrives at {route.get('hospital')}")]
+        transfer = route.get("transfer")
+        if isinstance(transfer, dict):
+            if route.get("drugAt"):
+                events.append((str(route["drugAt"]), f"Drug at {route.get('hospital')}"))
+            path = transfer.get("path") or ["?"]
+            events.append((str(transfer.get("leaves")),
+                           f"Transfer: {saved_path_text(path)}, {transfer.get('driveMinutes')} min"))
+            events.append((str(transfer.get("arrives")), f"Arrives at {transfer.get('hospital')}"))
+        return ["ROUTE"] + table_lines(events)
+
+    def hospital_lines(self, case):
+        if not has_route(case):
+            return ["HOSPITAL: no route yet, so no hospital stay."]
+        times = hospital_times(case)
+        if hospital_stay(case) is None:
+            planned = [f"{step.lower()}: {clock(when)}" for step, when, _ in times if when is not None]
+            plan = f"Planned {', '.join(planned)}." if planned else "No treatment was planned."
+            if last_leg(case.route).get("hospital") == UNIT:
+                return ["HOSPITAL", f"Not recorded yet: run unit run <file>. {plan}"]
+            return ["HOSPITAL", f"Not recorded: only {UNIT} is simulated. {plan}"]
+        rows = [("HOSPITAL", "PLANNED", "ACTUAL", "WAITED")]
+        for step, planned, actual in times:
+            waited = "-"
+            if planned is not None and actual is not None:
+                waited = f"{actual - planned} min"
+            rows.append((step, time_text(planned), time_text(actual), waited))
+        return table_lines(rows)
+
+    def recovery_lines(self, case):
+        if not case.visits:
+            return ["RECOVERY", "No clinic visits yet."]
+        norms = None
+        if self.norms is not None:
+            try:
+                norms = self.norms.for_age(case.age)
+            except ValueError:
+                norms = None
+        if norms is None:
+            header = f"RECOVERY (no normal values for age {case.age})"
+        else:
+            band = norms["reaction"]
+            header = f"RECOVERY (normal for ages {band.from_age}-{band.to_age})"
+        rows = []
+        for visit in by_day(case.visits):
+            row = [f"Day {visit['day']}"]
+            for test in TESTS:
+                value = visit[KEYS[test]]
+                text = f"{TEST_NAMES[test].lower()} {value if test == 'memory' else result_text(test, value)}"
+                if norms is not None:
+                    text += " " + rating(test, value, norms[test])
+                row.append(text if test == "reaction" else "· " + text)
+            rows.append(row)
+        return [header] + table_lines(rows)
+
+    def case_show(self, case_id):
+        missing = self.missing(("cases",))
+        if missing:
+            print("ERROR: " + missing)
+            return
+        case = self.find_case(case_id)
+        if case:
+            for line in self.case_lines(case):
+                print(line)
+
+    def case_find(self, text):
+        word = text.lower()
+        found = [case for case in self.cases.cases if word in case.name.lower() or word in case.city.lower()]
+        if not found:
+            print(f'No cases match "{text}".')
+            return
+        if len(found) == 1:
+            print(f'1 case matches "{text}". Opening it.')
+            self.case_show(found[0].id)
+            return
+        print(f'{count(len(found), "case")} match "{text}":')
+        print_table([(f"{number}. {case.id}", case.name, str(case.age), case.city)
+                     for number, case in enumerate(found, start=1)])
+
+        def choice(answer):
+            if not answer:
+                return None
+            if not answer.isdecimal() or not 1 <= int(answer) <= len(found):
+                raise ValueError(f"Enter a number from 1 to {len(found)}, or press ENTER to go back.")
+            return found[int(answer) - 1]
+
+        picked = ask("Enter a number to open, or press ENTER to go back: ", choice)
+        if picked:
+            self.case_show(picked.id)
+
+    def case_export(self, case_id):
+        case = self.find_case(case_id)
+        if not case:
+            return
+        text_path = os.path.join("exports", case.id + ".txt")
+        json_path = os.path.join("exports", case.id + ".json")
+        try:
+            os.makedirs("exports", exist_ok=True)
+            with open(text_path, "w", encoding="utf-8") as file:
+                file.write("\n".join(self.case_lines(case)) + "\n")
+            with open(json_path, "w", encoding="utf-8") as file:
+                json.dump(case.to_dict(), file, indent=2, ensure_ascii=False)
+        except OSError as error:
+            print(f"ERROR: Could not write the export files: {error.strerror}.")
+            return
+        print(f"SUCCESS: Wrote {text_path} and {json_path}.")
+
+    def is_flagged(self, case):
+        """Bonus 2 of Mission 6: a weak result the damage does not explain, or a test getting worse."""
+        if not case.visits or self.atlas is None or self.norms is None:
+            return False
+        try:
+            norms = self.norms.for_age(case.age)
+        except ValueError:
+            return False
+        checks = test_checks(by_day(case.visits), norms, damage(self.atlas, case))
+        return any(unexplained(rated, expected) or moved == "worse" for _, _, rated, moved, expected in checks)
+
+    def last_visit_text(self, case):
+        if not case.visits:
+            return "no visits"
+        visit = by_day(case.visits)[-1]
+        try:
+            norms = self.norms.for_age(case.age)
+        except (AttributeError, ValueError):
+            return f"day {visit['day']}: no normal values"
+        weak = sum(1 for test in TESTS if rating(test, visit[KEYS[test]], norms[test]) != "normal")
+        if weak == 0:
+            return f"day {visit['day']}: all normal"
+        return f"day {visit['day']}: {weak} below normal"
+
+    def case_board(self, _):
+        if not self.cases.cases:
+            print("No cases yet.")
+            return
+        rows = [("ID", "NAME", "WENT TO", "FIRST TREATMENT", "WAITED", "LAST VISIT", "")]
+        for case in self.cases.cases:
+            went = last_leg(case.route).get("hospital") if has_route(case) else "no route"
+            first = first_treatment(case)
+            treatment = "none"
+            waited = "-"
+            if first is not None:
+                name, when, planned, actual = first
+                treatment = f"{name} {clock(when)}" + ("" if actual is not None else " planned")
+                if actual is None:
+                    waited = "not recorded"
+                elif planned is not None:
+                    waited = f"{actual - planned} min"
+            rows.append((case.id, case.name, str(went), treatment, waited, self.last_visit_text(case),
+                         "!" if self.is_flagged(case) else ""))
+        print_table(rows)
+        print("! = check for a new stroke")
+
+    def case_cost(self, case_id):
+        case = self.find_case(case_id)
+        if not case:
+            return
+        first = first_treatment(case)
+        if first is None:
+            print(f"No treatment was planned or recorded for {case.id}, so there is nothing to count yet.")
+            return
+        name, when, planned, actual = first
+        minutes = when - case.seen_well
+        kind = "" if actual is not None else ", planned"
+        print(f"Last seen well {clock(case.seen_well)} -> first treatment {clock(when)} ({name}{kind}): "
+              f"{minutes} min")
+        print(f"About {millions(minutes)} million brain cells lost before treatment, at 1.9 million a minute.")
+        if actual is None:
+            print("The time spent waiting in the hospital line is not recorded for this case.")
+        elif planned is None:
+            print("There was no planned time to compare with, so the waiting time is not known.")
+        elif actual - planned > 0:
+            print(f"{actual - planned} of those minutes were spent waiting in the hospital line: "
+                  f"about {millions(actual - planned)} million.")
+        else:
+            print("No minutes were spent waiting in the hospital line.")
+        print("The 1.9 million figure is a published average for large strokes, used here as an estimate.")
 
 
 def main():
